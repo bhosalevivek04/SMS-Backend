@@ -17,7 +17,15 @@ if (!process.env.MONGO_URI || !process.env.TWILIO_ACCOUNT_SID || !process.env.TW
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+
+// CORS Configuration
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173", // Allow only your frontend's origin
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 // MongoDB Connection
 mongoose
@@ -38,7 +46,7 @@ const farmerSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    match: /^(\+91)?[0-9]{10}$/,
+    match: /^(\+91)?[0-9]{10}$/, // Adjust to match valid phone numbers
   },
 });
 const Farmer = mongoose.model("Farmer", farmerSchema);
