@@ -4,12 +4,20 @@ const mongoose = require("mongoose");
 const axios = require("axios");
 const twilio = require("twilio");
 const cron = require("node-cron");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to parse JSON request bodies
+// Validate environment variables
+if (!process.env.MONGO_URI || !process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
+  console.error("❌ Missing required environment variables.");
+  process.exit(1);
+}
+
+// Middleware
 app.use(express.json());
+app.use(cors());
 
 // MongoDB Connection
 mongoose
@@ -18,31 +26,30 @@ mongoose
     useUnifiedTopology: true,
   })
   .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Error:", err);
+    process.exit(1);
+  });
 
-// Define Farmer Schema with an updated regular expression to allow an optional +91 prefix.
+// Define Farmer Schema
 const farmerSchema = new mongoose.Schema({
   name: { type: String, trim: true },
   phoneNumber: {
     type: String,
     required: true,
     unique: true,
-    // This regex allows an optional '+91' followed by exactly 10 digits.
     match: /^(\+91)?[0-9]{10}$/,
   },
 });
 const Farmer = mongoose.model("Farmer", farmerSchema);
 
-// Twilio Credentials
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
-const client = twilio(accountSid, authToken);
+// Twilio Setup
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 // API Endpoint for Soil Moisture Data
 const API_ENDPOINT = "https://iot-backend-6oxx.onrender.com/api/sensor-data/latest";
 
-// Function to get the latest stored farmer's phone number
+// Function to get the latest farmer's phone number
 const getFarmerNumber = async () => {
   const farmer = await Farmer.findOne().sort({ _id: -1 });
   return farmer ? farmer.phoneNumber : null;
@@ -78,7 +85,7 @@ const sendSMS = async (to, message) => {
   try {
     const sms = await client.messages.create({
       body: message,
-      from: twilioNumber,
+      from: process.env.TWILIO_PHONE_NUMBER,
       to: to,
     });
     console.log(`📩 SMS Sent to ${to}! Message SID: ${sms.sid}`);
@@ -88,34 +95,27 @@ const sendSMS = async (to, message) => {
 };
 
 // API Endpoint to update the farmer's phone number
-app.post("/api/farmer-number", async (req, res) => {
-  let { name, phoneNumber } = req.body;
-
-  if (!phoneNumber) {
-    return res.status(400).json({ error: "phoneNumber is required" });
-  }
-
-  // Prepend +91 if missing. This does not break validation now because our regex supports both.
-  if (!phoneNumber.startsWith("+91")) {
-    phoneNumber = `+91${phoneNumber}`;
-  }
-
+app.post("/api/farmer-number", async (req, res, next) => {
   try {
-    // Use upsert to create a new document or update the existing one.
-    await Farmer.findOneAndUpdate(
-      {},
-      { name, phoneNumber },
-      { upsert: true, new: true, runValidators: true }
-    );
+    let { name, phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: "phoneNumber is required" });
+    }
+
+    if (!phoneNumber.startsWith("+91")) {
+      phoneNumber = `+91${phoneNumber}`;
+    }
+
+    await Farmer.findOneAndUpdate({}, { name, phoneNumber }, { upsert: true, new: true, runValidators: true });
     res.json({ message: "Farmer number updated successfully", name, phoneNumber });
   } catch (error) {
-    console.error("❌ Error updating farmer number:", error.message);
-    res.status(500).json({ error: "Failed to update farmer number" });
+    next(error);
   }
 });
 
 // API Endpoint to get the current farmer's phone number
-app.get("/api/farmer-number", async (req, res) => {
+app.get("/api/farmer-number", async (req, res, next) => {
   try {
     const farmer = await Farmer.findOne();
     if (!farmer) {
@@ -123,13 +123,12 @@ app.get("/api/farmer-number", async (req, res) => {
     }
     res.json(farmer);
   } catch (error) {
-    console.error("❌ Error fetching farmer number:", error.message);
-    res.status(500).json({ error: "Failed to retrieve farmer number" });
+    next(error);
   }
 });
 
 // API Endpoint to manually trigger an SMS with current soil moisture
-app.get("/api/trigger-sms", async (req, res) => {
+app.get("/api/trigger-sms", async (req, res, next) => {
   try {
     const farmer = await Farmer.findOne();
     if (!farmer) {
@@ -144,26 +143,31 @@ app.get("/api/trigger-sms", async (req, res) => {
 
     res.json({ message: "✅ Manual SMS sent successfully with current soil moisture" });
   } catch (error) {
-    console.error("❌ Error fetching soil moisture for manual SMS:", error.message);
-    res.status(500).json({ error: "Failed to fetch soil moisture data" });
+    next(error);
   }
 });
 
-// **Run an Immediate Check on Startup (Optional)**
-checkSoilMoisture();
+// Immediate Check on Startup
+// checkSoilMoisture();
 
-// **Schedule a Daily Check at 9:00 AM**
+// Schedule a Daily Check at 9:00 AM
 cron.schedule("0 9 * * *", () => {
   console.log("⏰ Running daily soil moisture check at 9:00 AM");
   checkSoilMoisture();
 });
 
-// **Home Route for Health Check**
+// Home Route for Health Check
 app.get("/", (req, res) => {
   res.send("🌍 Twilio SMS Alert Service Running...");
 });
 
-// **Start Express Server**
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("❌ Server Error:", err.message);
+  res.status(500).json({ error: "Internal Server Error" });
+});
+
+// Start Express Server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
