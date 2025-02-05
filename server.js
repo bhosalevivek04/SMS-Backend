@@ -4,15 +4,9 @@ const mongoose = require("mongoose");
 const axios = require("axios");
 const twilio = require("twilio");
 const cron = require("node-cron");
-const cors = require("cors"); // Import the cors package
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Enable CORS for all routes (or restrict by passing an options object)
-// For example, to restrict to http://localhost:5173:
-// app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(cors());
 
 // Middleware to parse JSON request bodies
 app.use(express.json());
