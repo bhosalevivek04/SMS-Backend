@@ -21,7 +21,6 @@ const client = twilio(accountSid, authToken);
 
 // Your API endpoint that provides soil moisture data
 const API_ENDPOINT = "https://iot-backend-6oxx.onrender.com/api/sensor-data/latest";
-const MOISTURE_THRESHOLD = 30; // Set your threshold value
 
 // Function to check soil moisture and send SMS if needed
 const checkSoilMoisture = async () => {
@@ -30,7 +29,7 @@ const checkSoilMoisture = async () => {
         const { soilmoisture } = response.data; // use the correct key from your API response
         console.log(`Current Soil Moisture: ${soilmoisture}%`);
 
-        if (soilmoisture < MOISTURE_THRESHOLD) {
+        if (soilmoisture < 30) {
             if (!farmerNumber) {
                 console.warn("Farmer number is not set. SMS cannot be sent.");
                 return;
@@ -66,8 +65,6 @@ app.post("/api/farmer-number", (req, res) => {
         return res.status(400).json({ error: "phoneNumber is required" });
     }
 
-    // (Optional) Validate phone number format using regex or a library
-    // For now, we'll just set it.
     farmerNumber = phoneNumber;
     console.log(`Farmer's phone number updated to: ${farmerNumber}`);
     res.json({ message: "Farmer number updated successfully", farmerNumber });
@@ -81,17 +78,22 @@ app.get("/api/farmer-number", (req, res) => {
     res.json({ farmerNumber });
 });
 
-// **New Manual Trigger Endpoint**
-// This will allow you to manually trigger an SMS
+// **New Manual Trigger Endpoint with Current Soil Moisture**
 app.get("/api/trigger-sms", async (req, res) => {
     if (!farmerNumber) {
         return res.status(404).json({ error: "Farmer number is not set" });
     }
 
-    const message = "This is a manual SMS test! Please check the soil moisture and take appropriate action.";
-    await sendSMS(message);
-    
-    res.json({ message: "Manual SMS sent successfully" });
+    try {
+        const response = await axios.get(API_ENDPOINT);
+        const { soilmoisture } = response.data;
+        const message = `Manual SMS Triggered! Current Soil Moisture: ${soilmoisture}%. Please monitor your crops accordingly.`;
+        await sendSMS(message);
+        res.json({ message: "Manual SMS sent successfully with current soil moisture" });
+    } catch (error) {
+        console.error("Error fetching soil moisture for manual SMS:", error.message);
+        res.status(500).json({ error: "Failed to fetch soil moisture data" });
+    }
 });
 
 // Immediately check soil moisture once at startup (optional)
