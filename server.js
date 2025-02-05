@@ -81,6 +81,19 @@ app.get("/api/farmer-number", (req, res) => {
     res.json({ farmerNumber });
 });
 
+// **New Manual Trigger Endpoint**
+// This will allow you to manually trigger an SMS
+app.get("/api/trigger-sms", async (req, res) => {
+    if (!farmerNumber) {
+        return res.status(404).json({ error: "Farmer number is not set" });
+    }
+
+    const message = "This is a manual SMS test! Please check the soil moisture and take appropriate action.";
+    await sendSMS(message);
+    
+    res.json({ message: "Manual SMS sent successfully" });
+});
+
 // Immediately check soil moisture once at startup (optional)
 checkSoilMoisture();
 
